@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>מפת תשתיות האנרגיה של ישראל 🇮🇱</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  #map { width: 100vw; height: 100vh; }
+  #legend {
+    position: fixed; bottom: 24px; right: 24px;
+    background: rgba(17,17,27,0.92); backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 16px;
+    color: #e2e8f0; font-size: 13px;
+    min-width: 180px; z-index: 1000;
+  }
+  #legend h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; cursor: pointer; opacity: 0.8; }
+  .legend-item:hover { opacity: 1; }
+  .legend-item .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend-item .line { width: 20px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+  .legend-item .square { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .legend-item .toggle-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-item-label { flex: 1; }
+  .legend-item .count { color: #64748b; font-size: 11px; }
+  #title {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(17,17,27,0.85); backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 10px 20px;
+    color: #e2e8f0; font-size: 15px; font-weight: 600;
+    z-index: 1000; direction: rtl;
+  }
+  #title span { color: #facc15; }
+  #stats {
+    position: fixed; top: 72px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; direction: ltr; z-index: 1000;
+  }
+  .stat-box {
+    background: rgba(17,17,27,0.85); backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px; padding: 6px 12px;
+    color: #e2e8f0; font-size: 12px;
+  }
+  .stat-box .num { font-weight: 600; color: #facc15; }
+  #popup-content { direction: rtl; font-size: 13px; }
+  #popup-content h4 { margin-bottom: 4px; font-size: 14px; }
+  #popup-content .info { color: #94a3b8; }
+  .maplibregl-popup-content { background: rgba(17,17,27,0.95) !important; color: #e2e8f0 !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 8px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important; padding: 12px 16px !important; }
+  .maplibregl-popup-tip { border-top-color: rgba(17,17,27,0.95) !important; }
+  .maplibregl-popup-close-button { color: #64748b !important; font-size: 16px !important; }
+  .maplibregl-ctrl-attrib { display: none !important; }
+  @media (max-width: 768px) {
+    #legend { top: auto; bottom: 16px; right: 16px; padding: 12px; font-size: 11px; min-width: 140px; }
+    #title { font-size: 13px; padding: 8px 14px; top: 8px; }
+    #stats { top: 56px; }
+    .stat-box { font-size: 10px; padding: 4px 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="title">⚡ מפת תשתיות האנרגיה של <span>ישראל</span></div>
+<div id="stats">
+  <div class="stat-box">תחנות כוח: <span class="num" id="plant-count">59</span></div>
+  <div class="stat-box">תחנות משנה: <span class="num" id="sub-count">16</span></div>
+</div>
+
+<div id="map"></div>
+
+<div id="legend">
+  <h3>שכבות</h3>
+  <div class="legend-item" id="toggle-plants">
+    <div class="dot" style="background:#f97316"></div>
+    <span class="legend-item-label">תחנות כוח</span>
+    <span class="count" id="plant-count-legend">59</span>
+  </div>
+  <div style="padding-right:18px;font-size:11px;color:#64748b;margin:2px 0 6px">
+    <div>● <span style="color:#f97316">גז</span> <span style="color:#fbbf24">סולארי</span> <span style="color:#ef4444">פחם</span> <span style="color:#60a5fa">רוח</span></div>
+  </div>
+  <div class="legend-item" id="toggle-subs">
+    <div class="square" style="background:#a78bfa"></div>
+    <span class="legend-item-label">תחנות משנה</span>
+    <span class="count" id="sub-count-legend">16</span>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
+<script>
+// === DATA: Israel Power Plants (from WRI database) ===
+const powerPlants = [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.3676, 32.6339]}, "properties": {"name": "Alon Tavor", "fuel": "Gas", "capacity": "365.0", "year": "", "lat": 32.6339, "lon": 35.3676}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.653, 30.953]}, "properties": {"name": "Ashalim PV", "fuel": "Solar", "capacity": "30.0", "year": "", "lat": 30.953, "lon": 34.653}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.7275, 30.9634]}, "properties": {"name": "Ashalim Sun", "fuel": "Solar", "capacity": "121.0", "year": "2018.0", "lat": 30.9634, "lon": 34.7275}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.7876, 31.1472]}, "properties": {"name": "Ashgod Energy", "fuel": "Gas", "capacity": "55.0", "year": "2015.0", "lat": 31.1472, "lon": 34.7876}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.2196, 31.782]}, "properties": {"name": "Atarot", "fuel": "Gas", "capacity": "70.0", "year": "1997.0", "lat": 31.782, "lon": 35.2196}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.6545, 31.5557]}, "properties": {"name": "Bror Hayil Solar Power Plant", "fuel": "Solar", "capacity": "8.7", "year": "2013.0", "lat": 31.5557, "lon": 34.6545}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.9453, 32.4723]}, "properties": {"name": "Caesarea - Best Carton Solar Power Plant", "fuel": "Solar", "capacity": "1.5", "year": "2013.0", "lat": 32.4723, "lon": 34.9453}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.3644, 31.0303]}, "properties": {"name": "Dead Sea Works", "fuel": "Gas", "capacity": "250.0", "year": "2015.0", "lat": 31.0303, "lon": 35.3644}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.5309, 31.6358]}, "properties": {"name": "Dorad", "fuel": "Gas", "capacity": "840.0", "year": "2014.0", "lat": 31.6358, "lon": 34.5309}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.9821, 29.624]}, "properties": {"name": "Ein Evrona Solar Power Plant", "fuel": "Solar", "capacity": "6.0", "year": "2014.0", "lat": 29.624, "lon": 34.9821}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.5589, 31.3225]}, "properties": {"name": "Ein HaShlosha", "fuel": "Solar", "capacity": "5.0", "year": "", "lat": 31.3225, "lon": 34.5589}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.9517, 29.5611]}, "properties": {"name": "Eliat", "fuel": "Gas", "capacity": "35.0", "year": "1996.0", "lat": 29.5611, "lon": 34.9517}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.032, 29.792]}, "properties": {"name": "Eliphaz ", "fuel": "Solar", "capacity": "7.0", "year": "", "lat": 29.792, "lon": 35.032}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.6551, 31.8388]}, "properties": {"name": "Eshkol", "fuel": "Gas", "capacity": "1432.0", "year": "", "lat": 31.8388, "lon": 34.6551}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.4616, 31.205]}, "properties": {"name": "Gevulot Solar Power Plant", "fuel": "Solar", "capacity": "8.5", "year": "2014.0", "lat": 31.205, "lon": 34.4616}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.9188, 31.9153]}, "properties": {"name": "Gezer", "fuel": "Gas", "capacity": "744.0", "year": "2007.0", "lat": 31.9153, "lon": 34.9188}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.0667, 29.9358]}, "properties": {"name": "Grofit ", "fuel": "Solar", "capacity": "6.3", "year": "", "lat": 29.9358, "lon": 35.0667}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.0431, 32.6172]}, "properties": {"name": "Hagit", "fuel": "Gas", "capacity": "1255.0", "year": "", "lat": 32.6172, "lon": 35.0431}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.0232, 32.8118]}, "properties": {"name": "Haifa", "fuel": "Gas", "capacity": "282.0", "year": "1961.0", "lat": 32.8118, "lon": 35.0232}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.0431, 32.6172]}, "properties": {"name": "Haifa (CCGT)", "fuel": "Gas", "capacity": "720.0", "year": "2010.0", "lat": 32.6172, "lon": 35.0431}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.5469, 31.1685]}, "properties": {"name": "Haluziot", "fuel": "Solar", "capacity": "55.0", "year": "2015.0", "lat": 31.1685, "lon": 34.5469}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.7099, 31.2475]}, "properties": {"name": "Hazerim ", "fuel": "Solar", "capacity": "6.0", "year": "", "lat": 31.2475, "lon": 34.7099}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.2466, 30.8069]}, "properties": {"name": "Hazeva", "fuel": "Solar", "capacity": "4.5", "year": "", "lat": 30.8069, "lon": 35.2466}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.2882, 31.2264]}, "properties": {"name": "Kerem Shalom", "fuel": "Solar", "capacity": "6.3", "year": "", "lat": 31.2264, "lon": 34.2882}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.059, 29.963]}, "properties": {"name": "Ketura Sun", "fuel": "Solar", "capacity": "4.9", "year": "", "lat": 29.963, "lon": 35.059}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.0595, 29.9647]}, "properties": {"name": "Kibbutz Ketura", "fuel": "Solar", "capacity": "40.0", "year": "2015.0", "lat": 29.9647, "lon": 35.0595}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.8691, 31.3764]}, "properties": {"name": "Lahav", "fuel": "Solar", "capacity": "3.2", "year": "2014.0", "lat": 31.3764, "lon": 34.8691}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.57, 31.318]}, "properties": {"name": "Maslul ", "fuel": "Solar", "capacity": "8.9", "year": "", "lat": 31.318, "lon": 34.57}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.9186, 31.329]}, "properties": {"name": "Meitar A", "fuel": "Solar", "capacity": "6.0", "year": "", "lat": 31.329, "lon": 34.9186}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.0046, 31.3663]}, "properties": {"name": "Meitarim", "fuel": "Solar", "capacity": "5.0", "year": "2015.0", "lat": 31.3663, "lon": 35.0046}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.9816, 29.7598]}, "properties": {"name": "Metzukei Timna ", "fuel": "Solar", "capacity": "6.0", "year": "", "lat": 29.7598, "lon": 34.9816}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.716, 31.371]}, "properties": {"name": "Mishmar HaNegev", "fuel": "Solar", "capacity": "7.8", "year": "", "lat": 31.371, "lon": 34.716}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.815, 30.63]}, "properties": {"name": "Mitzpe Ramon", "fuel": "Solar", "capacity": "7.0", "year": "", "lat": 30.63, "lon": 34.815}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.401, 31.224]}, "properties": {"name": "Mivtahim", "fuel": "Solar", "capacity": "10.0", "year": "", "lat": 31.224, "lon": 34.401}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.4256, 32.4664]}, "properties": {"name": "Mount Gilboa", "fuel": "Wind", "capacity": "21.0", "year": "2017.0", "lat": 32.4664, "lon": 35.4256}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.493, 31.469]}, "properties": {"name": "Nahal Oz", "fuel": "Solar", "capacity": "6.0", "year": "", "lat": 31.469, "lon": 34.493}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.047, 30.0492]}, "properties": {"name": "Neot Semadar Solar Power Plant", "fuel": "Solar", "capacity": "7.9", "year": "2014.0", "lat": 30.0492, "lon": 35.047}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.8912, 31.9138]}, "properties": {"name": "Nesher Ramla", "fuel": "Gas", "capacity": "220.0", "year": "2015.0", "lat": 31.9138, "lon": 34.8912}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.868, 31.224]}, "properties": {"name": "Nevatim", "fuel": "Solar", "capacity": "18.0", "year": "", "lat": 31.224, "lon": 34.868}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.865, 31.225]}, "properties": {"name": "Nevatim 3", "fuel": "Solar", "capacity": "18.0", "year": "", "lat": 31.225, "lon": 34.865}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.888, 32.47]}, "properties": {"name": "Orot Rabin", "fuel": "Coal", "capacity": "2590.0", "year": "", "lat": 32.47, "lon": 34.888}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.8146, 31.1536]}, "properties": {"name": "Ramat Hovav", "fuel": "Gas", "capacity": "1067.0", "year": "", "lat": 31.1536, "lon": 34.8146}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.7553, 31.145]}, "properties": {"name": "Ramat Hovav Solar Power Plant", "fuel": "Solar", "capacity": "37.5", "year": "2014.0", "lat": 31.145, "lon": 34.7553}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.7895, 31.1498]}, "properties": {"name": "Ramat Negev Energy", "fuel": "Gas", "capacity": "120.0", "year": "2015.0", "lat": 31.1498, "lon": 34.7895}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.7785, 32.1049]}, "properties": {"name": "Reading", "fuel": "Gas", "capacity": "428.0", "year": "1970.0", "lat": 32.1049, "lon": 34.7785}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.5216, 31.6299]}, "properties": {"name": "Rutenberg", "fuel": "Coal", "capacity": "2250.0", "year": "", "lat": 31.6299, "lon": 34.5216}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.015, 29.83]}, "properties": {"name": "Samar", "fuel": "Solar", "capacity": "10.9", "year": "", "lat": 29.83, "lon": 35.015}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.8058, 30.8739]}, "properties": {"name": "Sde Boker", "fuel": "Solar", "capacity": "5.0", "year": "", "lat": 30.8739, "lon": 34.8058}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.7357, 31.4089]}, "properties": {"name": "Shoval ", "fuel": "Solar", "capacity": "6.3", "year": "", "lat": 31.4089, "lon": 34.7357}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.5232, 32.6467]}, "properties": {"name": "Sirin Afcon", "fuel": "Wind", "capacity": "21.0", "year": "2017.0", "lat": 32.6467, "lon": 35.5232}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.7118, 31.9367]}, "properties": {"name": "Sorek", "fuel": "Gas", "capacity": "140.0", "year": "2016.0", "lat": 31.9367, "lon": 34.7118}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.6401, 31.4262]}, "properties": {"name": "Talmei Bilu Solar Power Plant", "fuel": "Solar", "capacity": "10.0", "year": "2013.0", "lat": 31.4262, "lon": 34.6401}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.4531, 31.2152]}, "properties": {"name": "Talmei Elihayu Solar Power Plant", "fuel": "Solar", "capacity": "10.0", "year": "2013.0", "lat": 31.2152, "lon": 34.4531}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.3682, 31.1922]}, "properties": {"name": "Talmei Yosef Solar Power Plant", "fuel": "Solar", "capacity": "9.0", "year": "2014.0", "lat": 31.1922, "lon": 34.3682}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.18, 30.485]}, "properties": {"name": "Tsukim", "fuel": "Solar", "capacity": "10.9", "year": "", "lat": 30.485, "lon": 35.18}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.8423, 31.7123]}, "properties": {"name": "Tzafit", "fuel": "Gas", "capacity": "355.0", "year": "", "lat": 31.7123, "lon": 34.8423}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.8422, 31.7148]}, "properties": {"name": "Tzafit (Dalia)", "fuel": "Gas", "capacity": "835.0", "year": "2015.0", "lat": 31.7148, "lon": 34.8422}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.0667, 29.9258]}, "properties": {"name": "Yotvata ", "fuel": "Solar", "capacity": "6.7", "year": "", "lat": 29.9258, "lon": 35.0667}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.7099, 31.2468]}, "properties": {"name": "Zmorot", "fuel": "Solar", "capacity": "50.0", "year": "2016.0", "lat": 31.2468, "lon": 34.7099}}];
+
+// === DATA: Substations ===
+const substations = [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.02, 32.81]}, "properties": {"name": "Haifa (IEC HQ)", "voltage": "400/161 kV", "type": "Major"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.84, 31.97]}, "properties": {"name": "Tel Aviv (Tzrifin)", "voltage": "400/161 kV", "type": "Major"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.52, 31.63]}, "properties": {"name": "Ashkelon", "voltage": "400/161 kV", "type": "Major"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.888, 32.47]}, "properties": {"name": "Hadera (Orot Rabin)", "voltage": "400/161 kV", "type": "Major"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.89, 32.49]}, "properties": {"name": "Caesarea", "voltage": "400 kV", "type": "Backbone"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.955, 32.095]}, "properties": {"name": "Rosh HaAyin (Kesem)", "voltage": "400 kV", "type": "Backbone"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.21, 31.78]}, "properties": {"name": "Jerusalem", "voltage": "161 kV", "type": "Regional"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.79, 31.25]}, "properties": {"name": "Be'er Sheva", "voltage": "161 kV", "type": "Regional"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.03, 31.07]}, "properties": {"name": "Dimona", "voltage": "161 kV", "type": "Regional"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.95, 29.56]}, "properties": {"name": "Eilat", "voltage": "161 kV", "type": "Regional"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.29, 32.91]}, "properties": {"name": "Karmiel", "voltage": "161 kV", "type": "Regional"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.29, 32.61]}, "properties": {"name": "Afula", "voltage": "161 kV", "type": "Regional"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.91, 32.175]}, "properties": {"name": "Kfar Saba", "voltage": "161 kV", "type": "Regional"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.79, 31.97]}, "properties": {"name": "Rishon LeZion", "voltage": "161 kV", "type": "Regional"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.65, 31.81]}, "properties": {"name": "Ashdod", "voltage": "161 kV", "type": "Regional"}}, {"type": "Feature", "geometry": {"type": "Point", "coordinates": [34.87, 31.89]}, "properties": {"name": "Ramla/Lod", "voltage": "161 kV", "type": "Regional"}}];
+
+// === MAP INIT ===
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  center: [34.85, 31.50],
+  zoom: 7.2,
+  maxBounds: [[33.5, 28.5], [36.5, 33.5]]
+});
+map.addControl(new maplibregl.NavigationControl(), 'bottom-left');
+
+// === COLOR MAPS ===
+const fuelColors = {
+  'Gas': '#f97316', 'Solar': '#fbbf24', 'Coal': '#ef4444',
+  'Wind': '#60a5fa', 'Hydro': '#06b6d4', 'Nuclear': '#a78bfa',
+  'Other': '#94a3b8', 'default': '#94a3b8'
+};
+const fuelLabels = {
+  'Gas': 'גז', 'Solar': 'סולארי', 'Coal': 'פחם',
+  'Wind': 'רוח', 'Hydro': 'הידרו', 'Nuclear': 'גרעין',
+  'Other': 'אחר', 'default': 'אחר'
+};
+
+map.on('load', () => {
+  // === POWER PLANTS SOURCE ===
+  map.addSource('plants', {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: powerPlants
+    },
+    cluster: true,
+    clusterMaxZoom: 10,
+    clusterRadius: 40
+  });
+
+  // === CLUSTER CIRCLES ===
+  map.addLayer({
+    id: 'clusters',
+    type: 'circle',
+    source: 'plants',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': ['step', ['get', 'point_count'], '#6366f1', 10, '#818cf8', 30, '#a78bfa'],
+      'circle-radius': ['step', ['get', 'point_count'], 18, 10, 24, 30, 32],
+      'circle-opacity': 0.6,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#1e1b4b'
+    }
+  });
+
+  map.addLayer({
+    id: 'cluster-count',
+    type: 'symbol',
+    source: 'plants',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': ['get', 'point_count_abbreviated'],
+      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+      'text-size': 13
+    },
+    paint: { 'text-color': '#ffffff' }
+  });
+
+  // === UNCLUSTERED PLANTS ===
+  map.addLayer({
+    id: 'plants-unclustered',
+    type: 'circle',
+    source: 'plants',
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-color': ['match', ['get', 'fuel'], ...Object.entries(fuelColors).flat()],
+      'circle-radius': ['*', ['sqrt', ['to-number', ['coalesce', ['get', 'capacity'], '10']]], 0.2],
+      'circle-stroke-width': 1.5,
+      'circle-stroke-color': '#ffffff',
+      'circle-opacity': 0.85
+    }
+  });
+
+  // === SUBSTATIONS SOURCE ===
+  map.addSource('subs', {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: substations
+    }
+  });
+
+  map.addLayer({
+    id: 'subs-layer',
+    type: 'circle',
+    source: 'subs',
+    paint: {
+      'circle-color': '#a78bfa',
+      'circle-radius': ['match', ['get', 'voltage'], '400 kV', 10, '400/161 kV', 9, 7],
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#6d28d9',
+      'circle-opacity': 0.8
+    }
+  });
+
+  map.addLayer({
+    id: 'subs-label',
+    type: 'symbol',
+    source: 'subs',
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+      'text-size': 10,
+      'text-offset': [0, 1.5],
+      'text-anchor': 'top'
+    },
+    paint: {
+      'text-color': '#a78bfa',
+      'text-halo-color': 'rgba(0,0,0,0.6)',
+      'text-halo-width': 1
+    }
+  });
+
+  // === POPUPS ===
+  map.on('click', 'plants-unclustered', (e) => {
+    const p = e.features[0].properties;
+    const f = fuelLabels[p.fuel] || p.fuel;
+    const cap = p.capacity ? `${p.capacity} MW` : 'N/A';
+    const yr = p.year || 'N/A';
+    new maplibregl.Popup()
+      .setLngLat(e.lngLat)
+      .setHTML(`
+        <div id="popup-content">
+          <h4>${p.name}</h4>
+          <div class="info">סוג דלק: ${f}</div>
+          <div class="info">קיבולת: ${cap}</div>
+          <div class="info">שנה: ${yr}</div>
+          <div class="info">קואורדינטות: ${p.lat}, ${p.lon}</div>
+        </div>
+      `)
+      .addTo(map);
+  });
+
+  map.on('click', 'subs-layer', (e) => {
+    const p = e.features[0].properties;
+    new maplibregl.Popup()
+      .setLngLat(e.lngLat)
+      .setHTML(`
+        <div id="popup-content">
+          <h4>⚡ ${p.name}</h4>
+          <div class="info">מתח: ${p.voltage}</div>
+          <div class="info">סוג: ${p.type}</div>
+        </div>
+      `)
+      .addTo(map);
+  });
+
+  // Click on cluster → zoom in
+  map.on('click', 'clusters', (e) => {
+    const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
+    const clusterId = features[0].properties.cluster_id;
+    map.getSource('plants').getClusterExpansionZoom(clusterId, (err, zoom) => {
+      if (err) return;
+      map.easeTo({ center: features[0].geometry.coordinates, zoom });
+    });
+  });
+
+  map.on('mouseenter', 'plants-unclustered', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'plants-unclustered', () => { map.getCanvas().style.cursor = ''; });
+  map.on('mouseenter', 'subs-layer', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'subs-layer', () => { map.getCanvas().style.cursor = ''; });
+
+  // === LAYER TOGGLE ===
+  let plantsVisible = true, subsVisible = true;
+  
+  document.getElementById('toggle-plants').onclick = () => {
+    plantsVisible = !plantsVisible;
+    ['plants-unclustered', 'clusters', 'cluster-count'].forEach(id => {
+      map.setLayoutProperty(id, 'visibility', plantsVisible ? 'visible' : 'none');
+    });
+    document.getElementById('toggle-plants').style.opacity = plantsVisible ? '0.8' : '0.3';
+  };
+
+  document.getElementById('toggle-subs').onclick = () => {
+    subsVisible = !subsVisible;
+    ['subs-layer', 'subs-label'].forEach(id => {
+      map.setLayoutProperty(id, 'visibility', subsVisible ? 'visible' : 'none');
+    });
+    document.getElementById('toggle-subs').style.opacity = subsVisible ? '0.8' : '0.3';
+  };
+});
+</script>
+</body>
+</html>
